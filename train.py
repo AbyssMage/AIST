@@ -82,9 +82,7 @@ nhid = 40  # num of features in hidden dimensions of rnn 64
 nlayer = 1
 nclasses = 2
 
-model = Temporal_Module(nfeature, nhid, nlayer, nclasses, target_region, target_cat)
-# model = Temporal_Module_LSTM(nfeature, nhid, nlayer, nclasses, target_region, target_cat)
-# print(model)
+model = AIST(nfeature, nhid, nlayer, nclasses, target_region, target_cat)
 n = sum(p.numel() for p in model.parameters() if p.requires_grad)
 print(n)
 

@@ -7,63 +7,16 @@ from utils import *
 import pickle
 
 
-class DeepCrime(nn.Module):
-    def __init__(self, nfeat1, nfeat2, nhid, nhid_mlp):
-        super(DeepCrime, self).__init__()
-        self.hrnn = Hierachical_Recurrent_Framework(nfeat1, nfeat1, nhid)
-        self.mlp = MLP(nhid, nhid_mlp)
-
-    def forward(self, x_crime):
-        x = self.hrnn(x_crime, x_crime)
-        out = self.mlp(x)
-        return out
-
-
-class RNN_MLP(nn.Module):
-    def __init__(self, nfeat, nhid):
-        super(RNN_MLP, self).__init__()
-        self.att_dim = 40
-        self.rnn = RNN_GRU(nfeat, nhid)
-        self.att = Attention(nhid, self.att_dim)
-        self.mlp = MLP(nhid)
-
-    def forward(self, x_crime):
-        x = self.rnn(x_crime)
-        attention = self.att(x)
-        attention = attention.unsqueeze(1)  # (batch size, 1, time-step)
-        weighted = torch.bmm(attention, x)  # (batch size, 1, hidden_dim)
-        out = self.mlp(weighted)
-        return out
-
-
-class RNN_Att_Softmax(nn.Module):
-    def __init__(self, nfeat, nhid):
-        super(RNN_Att_Softmax, self).__init__()
-        self.att_dim = 32
-        self.rnn = RNN_GRU(nfeat, nhid)
-        self.att = Attention(nhid, self.att_dim)
-        self.lr = nn.Linear(nhid, 1)
-
-    def forward(self, x_crime):
-        x = self.rnn(x_crime)
-        attention = self.att(x)
-        attention = attention.unsqueeze(1)  # (batch size, 1, time-step)
-        context = torch.bmm(attention, x)  # (batch size, 1, hidden_dim)
-        out = torch.sigmoid(self.lr(context))
-        return out
-
-
-class Temporal_Module(nn.Module):
+class AIST(nn.Module):
     def __init__(self, nfeat, nhid, nlayer, nclass, target_region, target_cat):
         """
-
         :param nfeat:
         :param nhid:
         :param nlayer:
         :param nclass:
         :param target_region: starts with 0
         """
-        super(Temporal_Module, self).__init__()
+        super(AIST, self).__init__()
         self.nfeat = nfeat
         self.nhid = nhid
         self.nlayer = nlayer
@@ -81,13 +34,6 @@ class Temporal_Module(nn.Module):
                                                   predict_m=10)
         self.sab3 = self_LSTM_sparse_attn_predict(1, nhid, nlayer, nclass, truncate_length=1, top_k=3, attn_every_k=1,
                                                   predict_m=10)
-
-        """self.sab1 = self_LSTM_sparse_attn_predict_eval_interpre(1 * 8, nhid, nlayer, nclass, s1, truncate_length=5, top_k=4,
-                                                  attn_every_k=5, predict_m=10)  # changed to 8 --> 16
-        self.sab2 = self_LSTM_sparse_attn_predict_eval_interpre(1, nhid, nlayer, nclass, s2, truncate_length=5, top_k=4, attn_every_k=5,
-                                                  predict_m=10)
-        self.sab3 = self_LSTM_sparse_attn_predict_eval_interpre(1, nhid, nlayer, nclass, s3, truncate_length=1, top_k=3, attn_every_k=1,
-                                                  predict_m=10)"""
 
         # single fully connected layer for prediction
         self.fc1 = nn.Linear(nhid, 1)  # nclass -> 1
