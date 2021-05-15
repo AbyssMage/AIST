@@ -8,61 +8,52 @@ import pickle
 
 
 class AIST(nn.Module):
-    def __init__(self, nfeat, nhid, nlayer, nclass, target_region, target_cat):
+    def __init__(self, in_hgat, in_fgat, out_gat, att_dot, nhid_rnn, nlayer_rnn, att_rnn, ts, target_region, target_cat, nclass=2):
         """
-        :param nfeat:
-        :param nhid:
-        :param nlayer:
-        :param nclass:
+        :param in_hgat: dimension of the input of hgat
+        :param in_fgat: dimension of the input of fgat
+        :param out_gat: dimension of the output of gat
+        :param att_dot: dimension of the dot attention of gat
+        :param nhid_rnn: dimension of hidden state of rnn
+        :param nlayer_rnn: number of layers of rnn
+        :param att_rnn: dimension of attention of trend
+        :param att_rnn: number of time steps
         :param target_region: starts with 0
+        :param target_cat: starts with 0
         """
         super(AIST, self).__init__()
-        self.nfeat = nfeat
-        self.nhid = nhid
-        self.nlayer = nlayer
-        self.nclass = nclass
-        self.att_dim = 30
+        self.in_hgat = in_hgat
+        self.in_fgat = in_fgat
+        self.out_gat = out_gat
+        self.att_dot = att_dot
+        self.nhid_rnn = nhid_rnn
+        self.nlayer_rnn = nlayer_rnn
+        self.att_rnn = att_rnn
         self.target_cat = target_cat
         self.target_region = target_region
 
-        # F = 6, 8, 10, 12
-        self.sp_module1 = Spatial_Module(1, 8, 0.5, 0.6, 1, 20, target_region, target_cat)
+        self.sp_module1 = Spatial_Module(in_hgat, in_fgat, out_gat, att_dot, 0.5, 0.6, 1, ts, target_region, target_cat)
 
-        self.sab1 = self_LSTM_sparse_attn_predict(2*8, nhid, nlayer, nclass, truncate_length=5, top_k=4,
-                                                  attn_every_k=5, predict_m=10)  # changed to 8 --> 16
-        self.sab2 = self_LSTM_sparse_attn_predict(1, nhid, nlayer, nclass, truncate_length=5, top_k=4, attn_every_k=5,
-                                                  predict_m=10)
-        self.sab3 = self_LSTM_sparse_attn_predict(1, nhid, nlayer, nclass, truncate_length=1, top_k=3, attn_every_k=1,
-                                                  predict_m=10)
+        self.sab1 = self_LSTM_sparse_attn_predict(2*out_gat, nhid_rnn, nlayer_rnn, truncate_length=5, top_k=4, attn_every_k=5)
+        self.sab2 = self_LSTM_sparse_attn_predict(in_hgat, nhid_rnn, nlayer_rnn, truncate_length=5, top_k=4, attn_every_k=5)
+        self.sab3 = self_LSTM_sparse_attn_predict(in_hgat, nhid_rnn, nlayer_rnn, truncate_length=1, top_k=3, attn_every_k=1)
 
-        # single fully connected layer for prediction
-        self.fc1 = nn.Linear(nhid, 1)  # nclass -> 1
-        self.fc2 = nn.Linear(2 * nhid, nclass)
-        self.fc3 = nn.Linear(3 * nhid, nclass)
-        # print(self.fc1.weight.shape)
+        self.fc1 = nn.Linear(nhid_rnn, 1)
+        self.fc2 = nn.Linear(2 * nhid_rnn, nclass)
+        self.fc3 = nn.Linear(3 * nhid_rnn, nclass)
 
-        # parameters for attention
-        self.wv = nn.Linear(nhid, self.att_dim)  # (S, E) x (E, 1) = (S, 1)
-        # self.wu = nn.Parameter(torch.zeros(self.att_dim))  # attention of the trends
-
-        # For evaluation of interpretability - 3.3, 3.4
-        self.wu = nn.Parameter(torch.zeros(size=(42, self.att_dim)))  # attention of the trends
+        # parameters for trend-attention
+        self.wv = nn.Linear(nhid_rnn, self.att_rnn)  # (S, E) x (E, 1) = (S, 1)
+        self.wu = nn.Parameter(torch.zeros(size=(42, self.att_rnn)))  # attention of the trends
         nn.init.xavier_uniform_(self.wu.data, gain=1.414)
-        # self.wu.requires_grad = False
-
-        """self.wu = torch.from_numpy(np.loadtxt("wu.txt"))
-        self.wu = self.wu.type(torch.FloatTensor)
-        self.wu.requires_grad = False"""
 
         self.dropout_layer = nn.Dropout(p=0.2)
 
-    def forward(self, x_crime, x_crime_daily, x_crime_weekly, x_regions, x_sp_crime, x_ext, s_crime):
+    def forward(self, x_crime, x_crime_daily, x_crime_weekly, x_nei, x_ext, x_sides):
 
-        x_crime = self.sp_module1(x_sp_crime, x_regions, x_ext, s_crime)
-        # print(x_crime.shape)
+        x_crime = self.sp_module1(x_crime, x_nei, x_ext, x_sides)
 
-        # x_crime = self.dropout_layer(x_crime)
-        x_con, x_con_attn = self.sab1(x_crime)
+        x_con, x_con_attn = self.sab1(x_crime)  # x_con = (B, ts)
         x_con = self.dropout_layer(x_con)
 
         """re_att = open("Heatmap/re_a_" + str(self.target_region) + "_" + str(self.target_cat) + ".txt", 'ab')
@@ -70,8 +61,7 @@ class AIST(nn.Module):
         np.savetxt(re_att, re_att_arr, fmt="%f")
         re_att.close()"""
 
-        # x_daily = (B, 20)
-        x_daily, x_daily_attn = self.sab2(x_crime_daily)
+        x_daily, x_daily_attn = self.sab2(x_crime_daily)  # x_daily = (B, 120/6)
         x_daily = self.dropout_layer(x_daily)
 
         """d_att = open("Heatmap/d_a_" + str(self.target_region) + "_" + str(self.target_cat) + ".txt", 'ab')
@@ -79,8 +69,7 @@ class AIST(nn.Module):
         np.savetxt(d_att, d_att_arr, fmt="%f")
         d_att.close()"""
 
-        # x_weekly = (B, 3): Commented 17 March
-        x_weekly, x_weekly_attn = self.sab3(x_crime_weekly)
+        x_weekly, x_weekly_attn = self.sab3(x_crime_weekly)  # x_weekly = (B, 120 / 6*7)
         x_weekly = self.dropout_layer(x_weekly)
 
         """w_att = open("Heatmap/w_a_" + str(self.target_region) + "_" + str(self.target_cat) + ".txt", 'ab')
@@ -89,14 +78,10 @@ class AIST(nn.Module):
         w_att.close()"""
 
         # incorporating attention
-        # Commented 18 March
         x_con = x_con.unsqueeze(1)
         x_daily = x_daily.unsqueeze(1)
         x_weekly = x_weekly.unsqueeze(1)
-
         x = torch.cat((x_con, x_daily, x_weekly), 1)
-        # x = torch.cat((x_con, x_weekly), 1)
-        # x = torch.cat((x_con, x_daily), 1)
 
         um = torch.tanh(self.wv(x))  # (B, 3, A)
         um = um.transpose(2, 1)  # [B, A, 3]
@@ -113,12 +98,6 @@ class AIST(nn.Module):
 
         alpha_m = alpha_m.unsqueeze(1)
 
-        # for interpretability evaluation task
-        """alpha_m = torch.ones((42, 3))
-        alpha_m = torch.softmax(alpha_m, dim=1)
-        alpha_m = alpha_m.unsqueeze(1)"""
-
-        # Commented 18 March
         x = torch.bmm(alpha_m, x)
         x = x.squeeze(1)
         x = torch.tanh(self.fc1(x))
@@ -127,23 +106,26 @@ class AIST(nn.Module):
 
 
 class Spatial_Module(nn.Module):
-    def __init__(self, nfeat, nhid, dropout, alpha, nheads, ts, target_region, target_cat):
+    def __init__(self, nfeat_hgat, nfeat_fgat, nhid, att_dot, dropout, alpha, nheads, ts, target_region, target_cat):
         """
-
-        :param nfeat:
-        :param nhid:
+        :param nfeat_hgat: input dimension of hgat
+        :param nfeat_fgat: input dimension of fgat
+        :param nhid: output dimension of gat
+        :param att_dot: dimension of the dot-product attention of gat
         :param dropout:
         :param alpha:
-        :param nheads:
-        :param ts:
+        :param nheads: number of heads of gat
+        :param ts: number of time steps
         :param target_region: starts with 0
         """
         super(Spatial_Module, self).__init__()
+        self.nfeat_hgat = nfeat_hgat
+        self.nfeat_fgat = nfeat_fgat
         self.nhid = nhid
+        self.ts = ts
         self.target_region = target_region
         self.target_cat = target_cat
-        # self.gat = GraphAttentionLayer(nfeat, nhid, dropout=dropout, alpha=alpha)
-        self.gat = [GraphAttentionLayer(nfeat, nhid, target_region, target_cat, dropout=dropout, alpha=alpha) for _ in range(ts)]
+        self.gat = [GraphAttentionLayer(nfeat_hgat, nfeat_fgat, nhid, att_dot, target_region, target_cat, dropout=dropout, alpha=alpha) for _ in range(ts)]
         for i, g in enumerate(self.gat):
             self.add_module('gat{}'.format(i), g)
 
@@ -152,11 +134,10 @@ class Spatial_Module(nn.Module):
         T = x_crime.shape[1]
         tem_x_regions = x_regions.copy()
 
-        # label = torch.tensor([6, 23, 27, 31, 7]) ----- Added new
         reg = gen_neighbor_index_zero_with_target(self.target_region)
         label = torch.tensor(reg)
 
-        label = label.repeat(T*B, 1)  # (T*B, 5)
+        label = label.repeat(T*B, 1)  # (T*B, N)
         label = label.view(label.shape[0] * label.shape[1], 1).long()  # label-shape = (T * B * N, 1)
 
         x_crime = x_crime.transpose(1, 0)  # shape = (T, B)
@@ -168,9 +149,8 @@ class Spatial_Module(nn.Module):
         feat = feat.view(feat.shape[0]*feat.shape[1]*feat.shape[2], 1).long()  # (T*B*N, 1)
         feat = torch.cat([label, feat], dim=1)  # (T*B*N, 2) --> (Node Label, features)
         feat = feat.view(T, B*N, 2)
-        # feat = feat.view(T, B, N, 2)
 
-        nfeat = 12
+        nfeat = self.nfeat_fgat
         feat_ext = torch.stack(x_ext, 2)
         feat_ext = feat_ext.view(feat_ext.shape[0] * feat_ext.shape[1] * feat_ext.shape[2], -1).long()  # (T*B*N, nfeat)
         feat_ext = torch.cat([label, feat_ext], dim=1)  # (T*B*N, 2)
@@ -181,26 +161,17 @@ class Spatial_Module(nn.Module):
         crime_side = crime_side.view(crime_side.shape[0]*crime_side.shape[1]*crime_side.shape[2], -1).long()  # (T*B*N, 1)
         crime_side = torch.cat([label, crime_side], dim=1)  # (T*B*N, 2)
         crime_side = crime_side.view(T, B * N, 2)  # (T, B*N, 2)
-        # crime_side = crime_side.view(T, B, N, 2)  # (T, B*N, 2)
 
         spatial_output = []
         j = 0
-        for i in range(100, 120):
-            np.savetxt("gat_feat.txt", feat[i], fmt='%d')
-            np.savetxt("gat_feat_ext.txt", feat_ext[i], fmt='%d')
-            np.savetxt("gat_crime_side.txt", crime_side[i], fmt='%d')
+        for i in range(120-self.ts, 120):
+            np.savetxt("data/gat_crime.txt", feat[i], fmt='%d')
+            np.savetxt("data/gat_ext.txt", feat_ext[i], fmt='%d')
+            np.savetxt("data/gat_side.txt", crime_side[i], fmt='%d')
             adj, features, features_ext, crime_side_features = load_data_GAT()
 
             out, ext = self.gat[j](features, adj, features_ext, crime_side_features)  # (N, F')(N, N, dv)
-            # out = self.gat[j](features, adj, features_ext, crime_side_features)  # (N, F')(N, N, dv)
-
-            # out = out.view(B, N, out.shape[1])
             out = out[:, -1, :]
-            # ext = ext.view(B, N, ext.shape[1])
-
-            # print(out.shape, ext.shape)
-
-            # Commented this for Feature 5:19 AM
             ext = ext[:, -1, :]
             out = torch.stack((out, ext), dim=2)
 
@@ -209,3 +180,4 @@ class Spatial_Module(nn.Module):
 
         spatial_output = torch.stack(spatial_output, 1)
         return spatial_output
+
