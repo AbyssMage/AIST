@@ -8,7 +8,7 @@ import pickle
 
 
 class AIST(nn.Module):
-    def __init__(self, in_hgat, in_fgat, out_gat, att_dot, nhid_rnn, nlayer_rnn, att_rnn, ts, target_region, target_cat, nclass=2):
+    def __init__(self, in_hgat, in_fgat, out_gat, att_dot, nhid_rnn, nlayer_rnn, att_rnn, ts, target_region, target_cat, location, nclass=2):
         """
         :param in_hgat: dimension of the input of hgat
         :param in_fgat: dimension of the input of fgat
@@ -32,7 +32,7 @@ class AIST(nn.Module):
         self.target_cat = target_cat
         self.target_region = target_region
 
-        self.sp_module1 = Spatial_Module(in_hgat, in_fgat, out_gat, att_dot, 0.5, 0.6, 1, ts, target_region, target_cat)
+        self.sp_module1 = Spatial_Module(in_hgat, in_fgat, out_gat, att_dot, 0.5, 0.6, 1, ts, target_region, target_cat, location)
 
         self.sab1 = self_LSTM_sparse_attn_predict(2*out_gat, nhid_rnn, nlayer_rnn, truncate_length=5, top_k=4, attn_every_k=5)
         self.sab2 = self_LSTM_sparse_attn_predict(in_hgat, nhid_rnn, nlayer_rnn, truncate_length=5, top_k=4, attn_every_k=5)
@@ -106,7 +106,7 @@ class AIST(nn.Module):
 
 
 class Spatial_Module(nn.Module):
-    def __init__(self, nfeat_hgat, nfeat_fgat, nhid, att_dot, dropout, alpha, nheads, ts, target_region, target_cat):
+    def __init__(self, nfeat_hgat, nfeat_fgat, nhid, att_dot, dropout, alpha, nheads, ts, target_region, target_cat, location):
         """
         :param nfeat_hgat: input dimension of hgat
         :param nfeat_fgat: input dimension of fgat
@@ -125,6 +125,7 @@ class Spatial_Module(nn.Module):
         self.ts = ts
         self.target_region = target_region
         self.target_cat = target_cat
+        self.location = location
         self.gat = [GraphAttentionLayer(nfeat_hgat, nfeat_fgat, nhid, att_dot, target_region, target_cat, dropout=dropout, alpha=alpha) for _ in range(ts)]
         for i, g in enumerate(self.gat):
             self.add_module('gat{}'.format(i), g)
@@ -134,7 +135,7 @@ class Spatial_Module(nn.Module):
         T = x_crime.shape[1]
         tem_x_regions = x_regions.copy()
 
-        reg = gen_neighbor_index_zero_with_target(self.target_region)
+        reg = gen_neighbor_index_zero_with_target(self.target_region, self.location)
         label = torch.tensor(reg)
 
         label = label.repeat(T*B, 1)  # (T*B, N)

@@ -144,10 +144,11 @@ def load_self_crime(x, x_daily, x_weekly, y):
     return train_x, train_x_daily, train_x_weekly, train_y, test_x, test_x_daily, test_x_weekly, test_y
 
 
-def load_nei_crime(target_crime_cat, target_region):
+def load_nei_crime(target_crime_cat, target_region, location):
     """
     :param target_crime_cat: starts from 0
     :param target_region: starts from 0
+    :param location: name of the city
     :return: batch_add_train:
     :return: batch_add_test:
     """
@@ -157,10 +158,10 @@ def load_nei_crime(target_crime_cat, target_region):
 
     add_train = []  # train x's of the regions
     add_test = []  # test x's of the regions
-    com = gen_neighbor_index_zero(target_region)
+    com = gen_neighbor_index_zero(target_region, location)
     scaler = MinMaxScaler(feature_range=(-1, 1))
     for i in com:
-        loaded_data = torch.from_numpy(np.loadtxt("data/com_crime/r_" + str(i) + ".txt", dtype=np.float)).T
+        loaded_data = torch.from_numpy(np.loadtxt("data/" + location + "/com_crime/r_" + str(i) + ".txt", dtype=np.float)).T
         loaded_data = loaded_data[:, target_crime_cat:target_crime_cat + 1]
         x, y, z, m = create_inout_sequences(loaded_data, time_step)
 
@@ -209,9 +210,10 @@ def load_nei_crime(target_crime_cat, target_region):
     return batch_add_train, batch_add_test
 
 
-def load_all_ext(target_region):
+def load_all_ext(target_region, location):
     """
     :param target_region: starts from 0
+    :param location: name of the city
     :return:
     """
     batch_size = 42
@@ -221,11 +223,11 @@ def load_all_ext(target_region):
 
     add_train = []  # train x's of the regions
     add_test = []  # test x's of the regions
-    com = gen_neighbor_index_one_with_target(target_region)
-    poi_data = torch.from_numpy(np.loadtxt("data/poi.txt", dtype=np.int))
+    com = gen_neighbor_index_one_with_target(target_region, location)
+    poi_data = torch.from_numpy(np.loadtxt("data/" + location + "/poi.txt", dtype=np.int))
 
     for i in com:
-        loaded_data = torch.from_numpy(np.loadtxt("data/act_ext/taxi" + str(i) + ".txt", dtype=np.int)).T
+        loaded_data = torch.from_numpy(np.loadtxt("data/" + location+ "/ext/taxi" + str(i) + ".txt", dtype=np.int)).T
         loaded_data1 = loaded_data[:, 0:1]
         loaded_data2 = loaded_data[:, 1:2]
         x_in, y_in, z_in, m_in = create_inout_sequences(loaded_data1, time_step)
@@ -279,10 +281,11 @@ def load_all_ext(target_region):
     return batch_add_train, batch_add_test
 
 
-def load_all_parent_crime(target_crime_cat, target_region):
+def load_all_parent_crime(target_crime_cat, target_region, location):
     """
 
     :param target_crime_cat: starts with 0
+    :param location: name of the city
     :param target_region: starts with 0
     :return:
     """
@@ -293,12 +296,11 @@ def load_all_parent_crime(target_crime_cat, target_region):
     add_train = []  # train x's of the regions
     add_test = []  # test x's of the regions
     # com = [6, 23, 27, 31, 7]  # starts with 0
-    com = gen_neighbor_index_zero_with_target(target_region)
-    # side = [2, 3, 3, 4, 4]
-    side = gen_com_side_adj_matrix(com)
+    com = gen_neighbor_index_zero_with_target(target_region, location)
+    side = gen_com_side_adj_matrix(com, location)
     scaler = MinMaxScaler(feature_range=(-1, 1))
     for i in range(len(com)):
-        loaded_data = torch.from_numpy(np.loadtxt("data/side_crime/s_" + str(side[i]) + ".txt", dtype=np.int)).T
+        loaded_data = torch.from_numpy(np.loadtxt("data/" + location + "/side_crime/s_" + str(side[i]) + ".txt", dtype=np.int)).T
         loaded_data = loaded_data[:, target_crime_cat:target_crime_cat + 1]
         tensor_ones = torch.from_numpy(np.ones((loaded_data.size(0), loaded_data.size(1)), dtype=np.int))
         loaded_data = torch.where(loaded_data > 1, tensor_ones, loaded_data)
@@ -349,35 +351,37 @@ def load_all_parent_crime(target_crime_cat, target_region):
     return batch_add_train, batch_add_test
 
 
-def gen_com_adj_matrix(target_region):
+def gen_com_adj_matrix(target_region, location):
     adj_matrix = np.zeros((77, 77), dtype=np.int)
-    edges_unordered = np.genfromtxt("data/com_adjacency.txt", dtype=np.int32)
+    edges_unordered = np.genfromtxt("data/" + location + "/com_adjacency.txt", dtype=np.int32)
     for i in range(edges_unordered.shape[0]):
         src = edges_unordered[i][0] - 1
         dst = edges_unordered[i][1] - 1
         adj_matrix[src][dst] = 1
         adj_matrix[src][dst] = 1
-    np.savetxt("data/com_adj_matrix.txt", adj_matrix, fmt="%d")
+    np.savetxt("data/" + location + "/com_adj_matrix.txt", adj_matrix, fmt="%d")
     return
 
 
-def gen_com_side_adj_matrix(regions):
+def gen_com_side_adj_matrix(regions, location):
     """
     :param regions: a list of regions starting from 0
+    :param location: name of the city
     :return: sides: a list of sides which are mapped (side, com) starts with 0
     """
-    idx = np.loadtxt("data/side_com_adj.txt", dtype=np.int)
+    idx = np.loadtxt("data/" + location + "/side_com_adj.txt", dtype=np.int)
     idx_map = {j: i for i, j in iter(idx)}
     side = [idx_map.get(x + 1) % 101 for x in regions]  # As it starts with 0
     return side
 
 
-def gen_neighbor_index_zero(target_region):
+def gen_neighbor_index_zero(target_region, location):
     """
     :param target_region: starts from 0
+    :param location: name of the city
     :return: indices of neighbors of target region (starts from 0)
     """
-    adj_matrix = np.loadtxt("data/com_adj_matrix.txt")
+    adj_matrix = np.loadtxt("data/" + location + "/com_adj_matrix.txt")
     adj_matrix = adj_matrix[target_region]
     neighbors = []
     for i in range(adj_matrix.shape[0]):
@@ -386,33 +390,36 @@ def gen_neighbor_index_zero(target_region):
     return neighbors
 
 
-def gen_neighbor_index_zero_with_target(target_region):
+def gen_neighbor_index_zero_with_target(target_region, location):
     """
     :param target_region: starts from 0
+    :param location: name of the city
     :return: indices of neighbors of target region (starts from 0)
     """
-    neighbors = gen_neighbor_index_zero(target_region)
+    neighbors = gen_neighbor_index_zero(target_region, location)
     neighbors.append(target_region)
     return neighbors
 
 
-def gen_neighbor_index_one_with_target(target_region):
+def gen_neighbor_index_one_with_target(target_region, location):
     """
     :param target_region: starts from 0
+    :param location: name of the city
     :return: indices of neighbors of target region (starts from 0)
     """
-    neighbors = gen_neighbor_index_zero(target_region)
+    neighbors = gen_neighbor_index_zero(target_region, location)
     neighbors.append(target_region)
     neighbors = [x + 1 for x in neighbors]
     return neighbors
 
 
-def gen_gat_adj_file(target_region):
+def gen_gat_adj_file(target_region, location):
     """
     :param target_region: starts from 0
+    :param location: name of the city
     :return:
     """
-    neighbors = gen_neighbor_index_zero(target_region)
+    neighbors = gen_neighbor_index_zero(target_region, location)
     adj_target = torch.zeros(len(neighbors), 2)
     for i in range(len(neighbors)):
         adj_target[i][0] = target_region
